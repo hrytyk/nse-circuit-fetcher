@@ -2,9 +2,12 @@ name: Daily NSE Circuit Update
 
 on:
   schedule:
-    # Runs Monday to Friday at 3:00 AM UTC (Which is 8:30 AM IST)
     - cron: '0 3 * * 1-5'
-  workflow_dispatch: # Allows manual trigger button
+  workflow_dispatch:
+
+# --- GRANT WRITE PERMISSIONS TO BOT ---
+permissions:
+  contents: write
 
 jobs:
   run-scraper:
