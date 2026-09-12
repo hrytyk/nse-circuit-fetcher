@@ -1,16 +1,9 @@
 import io
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def fetch_price_band_changes():
-    # Primary URL: Daily Price Band / Circuit Limit CSV from NSE Archives
-    # This report contains the daily revised price bands directly matching NSE's report page
-    urls = [
-        "https://archives.nseindia.com/content/equities/sec_banned.csv",
-        "https://archives.nseindia.com/content/equities/scrip_master.csv"
-    ]
-    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "*/*",
@@ -18,17 +11,25 @@ def fetch_price_band_changes():
     }
 
     session = requests.Session()
+    today = datetime.now()
     
-    for url in urls:
+    # Check the last 5 days to handle weekends and market holidays
+    for i in range(5):
+        target_date = today - timedelta(days=i)
+        date_str = target_date.strftime("%d%m%Y")  # Format: DDMMYYYY
+        
+        # Static archival link for "Price Band changes from next trade date"
+        url = f"https://archives.nseindia.com/content/equities/eq_band_changes_{date_str}.csv"
+        
         try:
-            response = session.get(url, headers=headers, timeout=15)
-            if response.status_code == 200 and len(response.text.strip()) > 50:
+            response = session.get(url, headers=headers, timeout=10)
+            if response.status_code == 200 and len(response.text.strip()) > 10:
                 df = pd.read_csv(io.StringIO(response.text))
-                df.columns = [str(col).strip().upper() for col in df.columns]
+                df.columns = [str(c).strip().upper() for c in df.columns]
                 
-                # Locate symbol and band columns dynamically
+                # Dynamic column lookup for Symbol and New Band Percentage
                 sym_col = next((c for c in df.columns if 'SYMBOL' in c or 'TICKER' in c), None)
-                band_col = next((c for c in df.columns if 'BAND' in c or 'LIMIT' in c or 'CIRCUIT' in c), None)
+                band_col = next((c for c in df.columns if 'NEW' in c or 'BAND' in c or 'LIMIT' in c or 'APPLICABLE' in c), None)
                 
                 if sym_col and band_col:
                     formatted_list = []
@@ -36,23 +37,23 @@ def fetch_price_band_changes():
                         symbol = str(row[sym_col]).strip().upper()
                         band = str(row[band_col]).strip().replace('%', '')
                         
-                        if symbol and band and symbol != 'NAN' and band.replace('.','',1).isdigit():
+                        if symbol and band and symbol != 'NAN':
                             formatted_list.append(f"{symbol}:{band}")
                     
                     if formatted_list:
                         output_string = ",".join(formatted_list)
                         with open("nse_circuit_data.txt", "w") as f:
                             f.write(output_string)
-                        print(f"Successfully wrote {len(formatted_list)} entries to nse_circuit_data.txt")
+                        print(f"Successfully loaded {len(formatted_list)} stocks from date: {date_str}")
                         return
         except Exception as e:
-            print(f"Failed fetching from {url}: {e}")
+            print(f"Failed to fetch date {date_str}: {e}")
 
-    # Default fallback data if NSE server is completely offline during market close/weekends
-    fallback = "RELIANCE:20,TATAMOTORS:10,SBIN:20,TCS:20,INFY:20,HDFCBANK:20,ICICIBANK:20,BHARTIARTL:20,ITC:20"
+    # Baseline fallback if no file is found (e.g., multi-day holiday window)
+    fallback = "RELIANCE:20,TATAMOTORS:10,SBIN:20,TCS:20,INFY:20,HDFCBANK:20"
     with open("nse_circuit_data.txt", "w") as f:
         f.write(fallback)
-    print("Wrote baseline dataset to nse_circuit_data.txt")
+    print("Writing default baseline dataset.")
 
 if __name__ == "__main__":
     fetch_price_band_changes()
