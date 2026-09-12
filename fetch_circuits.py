@@ -1,63 +1,59 @@
-import io
+import json
 import requests
-import pandas as pd
 
-def fetch_nse_circuit_data():
-    # Official NSE Daily Price Band / Security Master URL
-    report_url = "https://archives.nseindia.com/content/equities/sec_banned.csv"
+def fetch_price_band_changes():
+    # Official NSE API endpoint powering the /reports/price-band-changes page
+    api_url = "https://www.nseindia.com/api/price-band-changes"
     
-    # Custom headers mimicking a real browser
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "*/*",
+        "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.nseindia.com/"
+        "Referer": "https://www.nseindia.com/reports/price-band-changes"
     }
 
     session = requests.Session()
     
     try:
-        # Step 1: Establish session cookies by visiting the main site first
+        # Step 1: Establish session and retrieve cookies from main site
         session.get("https://www.nseindia.com", headers=headers, timeout=10)
+        session.get("https://www.nseindia.com/reports/price-band-changes", headers=headers, timeout=10)
         
-        # Step 2: Download the CSV report
-        response = session.get(report_url, headers=headers, timeout=15)
+        # Step 2: Request the price band changes JSON data
+        response = session.get(api_url, headers=headers, timeout=15)
         
-        if response.status_code == 200 and len(response.text.strip()) > 0:
-            # Parse CSV content
-            df = pd.read_csv(io.StringIO(response.text))
-            df.columns = [col.strip().upper() for col in df.columns]
-            
+        if response.status_code == 200:
+            data = response.json()
             formatted_list = []
             
-            # Find symbol and band columns dynamically
-            sym_col = next((col for col in df.columns if "SYMBOL" in col), None)
-            band_col = next((col for col in df.columns if "BAND" in col or "LIMIT" in col), None)
+            # Key inside JSON response containing the list of modified securities
+            records = data.get('data', []) if isinstance(data, dict) else data
             
-            if sym_col and band_col:
-                for _, row in df.iterrows():
-                    symbol = str(row[sym_col]).strip().upper()
-                    band = str(row[band_col]).strip().replace('%', '')
-                    if symbol and band and symbol != 'NAN':
-                        formatted_list.append(f"{symbol}:{band}")
-                        
+            for item in records:
+                # Extract Symbol and New Price Band percentage
+                symbol = str(item.get('symbol', '')).strip().upper()
+                # Band field may be named 'newBand', 'applicableBand', or 'band'
+                band = str(item.get('newBand', item.get('applicableBand', item.get('band', '')))).strip().replace('%', '')
+                
+                if symbol and band:
+                    formatted_list.append(f"{symbol}:{band}")
+            
             if formatted_list:
                 output_string = ",".join(formatted_list)
                 with open("nse_circuit_data.txt", "w") as f:
                     f.write(output_string)
-                print(f"Successfully wrote {len(formatted_list)} records to nse_circuit_data.txt")
+                print(f"Successfully processed {len(formatted_list)} stocks from Price Band Changes report.")
                 return
-
-        print(f"Direct download failed (Status: {response.status_code}). Using backup master dataset.")
-        
+            else:
+                print("No price band revisions found for today.")
+                
     except Exception as e:
-        print(f"Error fetching live data: {e}")
+        print(f"Error fetching price band changes: {e}")
 
-    # Fallback dataset if NSE blocks cloud runner IP
-    fallback_data = "GENESYS:20,RELIANCE:20,TATAMOTORS:10,SBIN:20,TCS:20,INFY:20,HDFCBANK:20,ICICIBANK:20,BHARTIARTL:20,ITC:20"
+    # Fallback if no revisions are listed or API returns empty (e.g., non-trading days)
     with open("nse_circuit_data.txt", "w") as f:
-        f.write(fallback_data)
-    print("Fallback dataset written to nse_circuit_data.txt")
+        f.write("")
+    print("nse_circuit_data.txt updated with empty state.")
 
 if __name__ == "__main__":
-    fetch_nse_circuit_data()
+    fetch_price_band_changes()
